@@ -70,7 +70,7 @@ class WikiBot:
         return domain.rstrip('/')
 
     def login(self, wiki_config):
-        """Login to a wiki using BotPassword with simplified connection"""
+        """Login to a wiki using BotPassword with basic authentication"""
         self.logger.debug("Attempting login to %s as %s", 
                         wiki_config['name'], wiki_config['username'])
         
@@ -78,22 +78,21 @@ class WikiBot:
             domain = self._normalize_url(wiki_config['url'])
             self.logger.debug("Connecting to: %s", domain)
             
-            # Simplified site connection without unsupported parameters
+            # Basic site connection
             site = Site(domain, path='/w/')
             
-            # Modern authentication
+            # Simple login without advanced parameters
             login_result = site.login(
                 wiki_config['username'],
-                wiki_config['password'],
-                login_method="clientlogin"
+                wiki_config['password']
             )
             
             if login_result:
                 self.logger.info("Successfully logged into %s", wiki_config['name'])
-                # Verify we have edit tokens
+                # Verify we can get a token
                 try:
                     edit_token = site.get_token('csrf')
-                    self.logger.debug("Obtained edit token: %s", edit_token)
+                    self.logger.debug("Obtained edit token")
                     return site
                 except Exception as e:
                     self.logger.error("Failed to get edit token for %s: %s", 
