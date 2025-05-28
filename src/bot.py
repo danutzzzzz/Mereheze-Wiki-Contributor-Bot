@@ -33,7 +33,25 @@ class WikiBot:
         new_text = f"{current_text}\n{processed_text}"
         page.edit(new_text, summary="Bot: Automated update")
     
+    def run_single(self, wiki_name, page_path):
+        """Update a single wiki page"""
+        for wiki in self.config['wikis']:
+            if wiki['name'] == wiki_name:
+                site = self.login(wiki)
+                if not site:
+                    return
+                
+                for page in wiki['pages']:
+                    if page['path'] == page_path:
+                        try:
+                            self.contribute(site, page['path'], page['text'])
+                            print(f"Updated {wiki_name} - {page_path}")
+                        except Exception as e:
+                            print(f"Error updating {wiki_name} - {page_path}: {str(e)}")
+                        return
+    
     def run(self):
+        """Update all configured wikis and pages"""
         for wiki in self.config['wikis']:
             site = self.login(wiki)
             if not site:
@@ -45,8 +63,3 @@ class WikiBot:
                     print(f"Updated {wiki['name']} - {page['path']}")
                 except Exception as e:
                     print(f"Error updating {wiki['name']} - {page['path']}: {str(e)}")
-
-if __name__ == "__main__":
-    config_path = os.getenv('CONFIG_PATH', '/app/config/config.yaml')
-    bot = WikiBot(config_path)
-    bot.run()
