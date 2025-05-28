@@ -20,4 +20,4 @@ ENV CONFIG_PATH=/app/config/config.yaml
 ENV PYTHONPATH=/app
 
 # Run the scheduler by default
-CMD ["python", "-m", "src.scheduler"]
+CMD ["python", "-m", "mereheze_bot.scheduler"]

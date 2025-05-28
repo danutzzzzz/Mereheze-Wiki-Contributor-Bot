@@ -1,6 +1,7 @@
+import os
 import time
 import schedule
-from bot import WikiBot
+from mereheze_bot.bot import WikiBot
 
 class WikiScheduler:
     def __init__(self, config_path):
