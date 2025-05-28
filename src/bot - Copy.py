@@ -9,10 +9,7 @@ class WikiBot:
         self.logger = logger if logger else self._setup_default_logger()
         self.config = self._load_config(config_path)
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'MerehezeBot/1.0 (https://github.com/your/repo)',
-            'Accept': 'application/json'
-        })
+        self.session.headers.update({'User-Agent': 'MerehezeBot/1.0'})
         self.logger.info("WikiBot initialized for Miraheze")
 
     def _setup_default_logger(self):
@@ -34,7 +31,6 @@ class WikiBot:
             raise
 
     def _get_login_token(self, api_url):
-        """Get login token using BotPassword-specific endpoint"""
         try:
             response = self.session.get(
                 api_url,
@@ -52,19 +48,18 @@ class WikiBot:
             return None
 
     def login(self, wiki_config):
-        """Proper BotPassword authentication for Miraheze"""
-        self.logger.info("Attempting BotPassword login to %s", wiki_config['name'])
+        self.logger.info("Attempting login to %s", wiki_config['name'])
         
         try:
-            api_url = f"{wiki_config['url'].rstrip('/')}/w/api.php"
+            api_url = f"{wiki_config['url']}/w/api.php"
             
             # Step 1: Get login token
             token = self._get_login_token(api_url)
             if not token:
                 return None
             
-            # Step 2: Perform BotPassword login
-            login_data = {
+            # Step 2: Perform login
+            login_params = {
                 'action': 'login',
                 'lgname': wiki_config['username'],
                 'lgpassword': wiki_config['password'],
@@ -72,28 +67,25 @@ class WikiBot:
                 'format': 'json'
             }
             
-            response = self.session.post(api_url, data=login_data)
+            response = self.session.post(api_url, data=login_params)
             response.raise_for_status()
             result = response.json()
             
             if result.get('login', {}).get('result') == 'Success':
-                self.logger.info("BotPassword login successful")
-                return api_url
+                self.logger.info("Login successful to %s", wiki_config['name'])
+                return api_url  # Return API endpoint for subsequent calls
                 
-            error_info = result.get('login', {})
-            self.logger.error("Login failed: %s", error_info.get('reason', 'Unknown error'))
-            if error_info.get('result') == 'Failed':
-                self.logger.error("Additional info: %s", error_info.get('message', ''))
+            self.logger.error("Login failed: %s", result.get('login', {}).get('reason', 'Unknown error'))
             return None
                 
         except Exception as e:
             self.logger.error("Login error: %s", str(e), exc_info=True)
             return None
 
-    def _get_csrf_token(self, api_url):
-        """Get CSRF token for edits"""
+    def edit_page(self, api_url, page_path, text):
         try:
-            response = self.session.get(
+            # Get CSRF token
+            token_response = self.session.get(
                 api_url,
                 params={
                     'action': 'query',
@@ -101,37 +93,25 @@ class WikiBot:
                     'format': 'json'
                 }
             )
-            response.raise_for_status()
-            return response.json()['query']['tokens']['csrftoken']
-        except Exception as e:
-            self.logger.error("Failed to get CSRF token: %s", str(e))
-            return None
-
-    def edit_page(self, api_url, page_path, text):
-        """Make edit using proper BotPassword session"""
-        try:
-            # Get CSRF token
-            token = self._get_csrf_token(api_url)
-            if not token:
-                return False
-                
-            # Prepare edit
-            edit_data = {
+            token_response.raise_for_status()
+            token = token_response.json()['query']['tokens']['csrftoken']
+            
+            # Perform edit
+            edit_params = {
                 'action': 'edit',
                 'title': page_path.lstrip('/'),
                 'text': text,
                 'summary': 'Bot: Automated update',
                 'token': token,
-                'format': 'json',
-                'bot': True  # Mark as bot edit
+                'format': 'json'
             }
             
-            response = self.session.post(api_url, data=edit_data)
+            response = self.session.post(api_url, data=edit_params)
             response.raise_for_status()
             result = response.json()
             
             if 'error' in result:
-                self.logger.error("API error: %s", result['error']['info'])
+                self.logger.error("Edit failed: %s", result['error']['info'])
                 return False
             return True
             
@@ -140,7 +120,6 @@ class WikiBot:
             return False
 
     def run_single(self, wiki_name, page_path):
-        """Handle single page update"""
         self.logger.info("Processing %s - %s", wiki_name, page_path)
         
         for wiki in self.config.get('wikis', []):
@@ -151,5 +130,38 @@ class WikiBot:
                 
                 for page in wiki.get('pages', []):
                     if page['path'].lstrip('/') == page_path.lstrip('/'):
-                        return self.edit_page(api_url, page['path'], page['text'])
+                        result = self.edit_page(api_url, page['path'], page['text'])
+                        self.logger.info("Edit %s: %s", 
+                                       "succeeded" if result else "failed", 
+                                       page['path'])
+                        return result
         return False
+
+# ==============================================
+# MAIN EXECUTION BLOCK (for direct testing only)
+# ==============================================
+if __name__ == "__main__":
+    """Standalone test mode for debugging login issues"""
+    import argparse
+    
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(description='Test WikiBot login')
+    parser.add_argument('--wiki', required=True, help='Wiki name')
+    parser.add_argument('--url', required=True, help='Wiki URL')
+    parser.add_argument('--user', required=True, help='Bot username')
+    parser.add_argument('--token', required=True, help='Bot password token')
+    args = parser.parse_args()
+
+    # Initialize and test
+    bot = WikiBot(None)  # No config file needed for testing
+    test_wiki = {
+        'name': args.wiki,
+        'url': args.url,
+        'username': args.user,
+        'password': args.token
+    }
+    
+    if bot.login(test_wiki):
+        print("✅ Login successful!")
+    else:
+        print("❌ Login failed")
