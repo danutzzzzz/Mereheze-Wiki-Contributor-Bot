@@ -36,6 +36,7 @@ Edit the `config/config.yaml` file to specify:
      -v /your-path/MWCB/config:/app/config/ \
      -e TZ=America/New_York \
      danutzzzzz/MWCB:latest
+   ```
 
 ## Implementation Notes
 
