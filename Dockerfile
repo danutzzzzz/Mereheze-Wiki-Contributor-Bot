@@ -15,6 +15,12 @@ WORKDIR /app
 COPY src/ /app/src/
 COPY config/ /app/config/
 
+# Create log directory and set permissions
+RUN mkdir -p /app/config/logs && chmod 777 /app/config/logs
+
+# Add volume for log persistence (optional)
+VOLUME /app/config/logs
+
 # Set environment variables
 ENV CONFIG_PATH=/app/config/config.yaml
 ENV PYTHONPATH=/app
