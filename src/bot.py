@@ -9,7 +9,7 @@ class WikiBot:
     def __init__(self, config_path, logger=None):
         self.logger = logger if logger else self._setup_default_logger()
         self.config = self._load_config(config_path)
-        self.logger.info("WikiBot initialized")
+        self.logger.info("WikiBot initialized for Miraheze")
 
     def _setup_default_logger(self):
         logger = logging.getLogger('WikiBot')
@@ -30,27 +30,35 @@ class WikiBot:
             raise
 
     def login(self, wiki_config):
-        self.logger.info("Attempting login to %s", wiki_config['name'])
+        self.logger.info("Attempting Miraheze login to %s", wiki_config['name'])
         
         try:
-            domain = wiki_config['url'].replace('https://', '').replace('http://', '').split('/')[0]
-            site = Site(domain, path='/w/')
-            login_result = site.login(wiki_config['username'], wiki_config['password'])
+            # Miraheze-specific connection
+            site = Site(
+                'miraheze.org',  # Central auth server
+                path='/w/',
+                scheme='https',
+                host=f"{wiki_config['name'].replace(' ', '_').lower()}.miraheze.org"
+            )
+            
+            # Miraheze requires BotPasswords format (username@botname)
+            login_result = site.login(
+                wiki_config['username'],
+                wiki_config['password']
+            )
             
             if login_result:
-                self.logger.info("Login successful to %s", wiki_config['name'])
+                self.logger.info("Miraheze login successful to %s", wiki_config['name'])
                 return site
             self.logger.error("Login failed (returned False)")
             return None
                 
         except LoginError as e:
-            self.logger.error("Login failed with error: %s", str(e))
-            if hasattr(e, 'args') and len(e.args) > 1 and isinstance(e.args[1], dict):
-                error_info = e.args[1]
-                self.logger.error("API Error Code: %s", error_info.get('code', 'unknown'))
-                self.logger.error("API Error Info: %s", error_info.get('info', 'unknown'))
+            self.logger.error("Miraheze login failed: %s", str(e))
+            if hasattr(e, 'args') and len(e.args) > 1:
+                self.logger.error("API Response: %s", e.args[1])
         except Exception as e:
-            self.logger.error("Unexpected login error: %s", str(e))
+            self.logger.error("Unexpected error: %s", str(e))
         return None
 
     def edit_page(self, site, page_path, text):
@@ -81,16 +89,11 @@ class WikiBot:
                         return result
         return False
 
-    def run(self):
-        for wiki in self.config.get('wikis', []):
-            site = self.login(wiki)
-            if not site:
-                continue
-                
-            for page in wiki.get('pages', []):
-                self.edit_page(site, page['path'], page['text'])
-
-# Only run if executed directly, not when imported
 if __name__ == "__main__":
-    bot = WikiBot(os.getenv('CONFIG_PATH', '/app/config/config.yaml'))
-    bot.run()
+    # Test connection
+    bot = WikiBot('config.yaml')
+    site = bot.login({'name': 'KnightShift', 
+                     'url': 'https://knightshift.miraheze.org',
+                     'username': 'AlphaOmega@mwcb',
+                     'password': 'your-token'})
+    print("Login successful!" if site else "Login failed")
