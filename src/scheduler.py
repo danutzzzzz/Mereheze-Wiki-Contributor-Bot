@@ -2,44 +2,48 @@
 import sys
 import os
 import time
-import schedule
+from datetime import datetime
+from crontab import CronTab
 from bot import WikiBot
 
 class WikiScheduler:
     def __init__(self, config_path):
         self.bot = WikiBot(config_path)
-        self.schedules = self.load_schedules()
+        self.cron = CronTab()
+        self.jobs = []
     
-    def load_schedules(self):
-        """Load all schedules from config"""
-        schedules = []
+    def setup_schedules(self):
+        """Setup all scheduled jobs from config"""
         for wiki in self.bot.config['wikis']:
             for page in wiki['pages']:
                 if 'schedule' in page:
-                    schedules.append({
-                        'schedule': page['schedule'],
+                    job = self.cron.new(
+                        command=f'echo "Running {wiki["name"]} - {page["path"]}"',
+                        comment=f'{wiki["name"]}_{page["path"]}'
+                    )
+                    job.setall(page['schedule'])
+                    self.jobs.append({
+                        'job': job,
                         'wiki': wiki['name'],
                         'page': page['path']
                     })
-        return schedules
+                    print(f"Scheduled {wiki['name']} - {page['path']} with cron: {page['schedule']}")
     
-    def setup_schedules(self):
-        """Setup all scheduled jobs"""
-        for item in self.schedules:
-            schedule.every().cron(item['schedule']).do(
-                self.run_scheduled_update,
-                wiki_name=item['wiki'],
-                page_path=item['page']
-            )
-            print(f"Scheduled {item['wiki']} - {item['page']} with cron: {item['schedule']}")
+    def should_run(self, job):
+        """Check if a job should run now"""
+        return job.schedule().get_next() < datetime.now()
     
-    def run_scheduled_update(self, wiki_name, page_path):
-        """Run update for a specific wiki page"""
-        print(f"Running scheduled update for {wiki_name} - {page_path}")
-        try:
-            self.bot.run_single(wiki_name, page_path)
-        except Exception as e:
-            print(f"Error updating {wiki_name} - {page_path}: {str(e)}")
+    def run_pending(self):
+        """Run all pending jobs"""
+        for item in self.jobs:
+            if self.should_run(item['job']):
+                print(f"Running scheduled update for {item['wiki']} - {item['page']}")
+                try:
+                    self.bot.run_single(item['wiki'], item['page'])
+                    # Update last run time
+                    item['job'].schedule().get_next()
+                except Exception as e:
+                    print(f"Error updating {item['wiki']} - {item['page']}: {str(e)}")
     
     def run(self):
         """Main scheduler loop"""
@@ -47,7 +51,7 @@ class WikiScheduler:
         print("Scheduler started. Press Ctrl+C to exit.")
         try:
             while True:
-                schedule.run_pending()
+                self.run_pending()
                 time.sleep(60)
         except KeyboardInterrupt:
             print("Scheduler stopped.")
