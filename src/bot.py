@@ -108,11 +108,14 @@ class WikiBot:
             return None
 
     def edit_page(self, api_url, page_path, text):
-        """Make edit using proper BotPassword session"""
+        """Make edit and provide detailed confirmation"""
         try:
+            self.logger.info(f"Preparing to edit: {page_path}")
+            
             # Get CSRF token
             token = self._get_csrf_token(api_url)
             if not token:
+                self.logger.error("Cannot get edit token")
                 return False
                 
             # Prepare edit
@@ -123,7 +126,7 @@ class WikiBot:
                 'summary': 'Bot: Automated update',
                 'token': token,
                 'format': 'json',
-                'bot': True  # Mark as bot edit
+                'bot': True
             }
             
             response = self.session.post(api_url, data=edit_data)
@@ -131,12 +134,26 @@ class WikiBot:
             result = response.json()
             
             if 'error' in result:
-                self.logger.error("API error: %s", result['error']['info'])
+                self.logger.error(f"Edit failed! API error: {result['error']['info']}")
                 return False
-            return True
+            
+            # Detailed success logging
+            if 'edit' in result:
+                if result['edit']['result'] == 'Success':
+                    self.logger.info(f"✅ Edit successful! Page: {page_path}")
+                    self.logger.info(f"🔗 Page URL: {api_url.replace('api.php', 'index.php')}?title={page_path.replace(' ', '_')}")
+                    self.logger.debug(f"Edit details: {result['edit']}")
+                    return True
+                else:
+                    self.logger.error(f"Edit returned unexpected result: {result['edit']['result']}")
+                    return False
+            
+            self.logger.error("Unexpected API response format")
+            self.logger.debug(f"Full API response: {result}")
+            return False
             
         except Exception as e:
-            self.logger.error("Edit failed: %s", str(e), exc_info=True)
+            self.logger.error(f"❌ Edit failed for {page_path}: {str(e)}", exc_info=True)
             return False
 
     def run_single(self, wiki_name, page_path):
