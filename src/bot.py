@@ -7,14 +7,14 @@ import logging
 from datetime import datetime
 from mwclient import Site
 from mwclient.errors import LoginError
-from urllib3.exceptions import HTTPError
 
 class WikiBot:
     def __init__(self, config_path, logger=None):
         self.logger = logger if logger else self._setup_default_logger()
         self.config = self._load_config(config_path)
-        self.edit_delay = 5  # seconds between edits to avoid rate limiting
-        self.logger.info("WikiBot initialized with %d wiki configurations", len(self.config['wikis']))
+        self.edit_delay = 5  # seconds between edits
+        self.logger.info("WikiBot initialized with %d wiki configurations", 
+                        len(self.config['wikis']))
 
     def _setup_default_logger(self):
         """Setup default logger if none provided"""
@@ -55,7 +55,8 @@ class WikiBot:
             raise ValueError(f"Invalid URL format for {wiki_config['name']}. Must start with http:// or https://")
 
         if '@' not in wiki_config['username']:
-            self.logger.warning("Username '%s' doesn't appear to be a BotPassword (missing @)", wiki_config['username'])
+            self.logger.warning("Username '%s' doesn't appear to be a BotPassword (missing @)", 
+                              wiki_config['username'])
 
     def _normalize_url(self, url):
         """Normalize wiki URL to extract domain"""
@@ -69,26 +70,18 @@ class WikiBot:
         return domain.rstrip('/')
 
     def login(self, wiki_config):
-        """Login to a wiki using BotPassword with proper authentication"""
+        """Login to a wiki using BotPassword with simplified connection"""
         self.logger.debug("Attempting login to %s as %s", 
                         wiki_config['name'], wiki_config['username'])
         
         try:
             domain = self._normalize_url(wiki_config['url'])
-            self.logger.debug("Connecting to domain: %s", domain)
+            self.logger.debug("Connecting to: %s", domain)
             
-            # Initialize site with modern settings
-            site = Site(
-                domain,
-                path='/w/',
-                max_retries=3,
-                retry_timeout=30,
-                do_init=True,  # Required for modern auth
-                pool_connections=1,
-                pool_maxsize=1
-            )
+            # Simplified site connection without unsupported parameters
+            site = Site(domain, path='/w/')
             
-            # Modern authentication with clientlogin
+            # Modern authentication
             login_result = site.login(
                 wiki_config['username'],
                 wiki_config['password'],
@@ -96,14 +89,16 @@ class WikiBot:
             )
             
             if login_result:
-                if not site.tokens:
-                    self.logger.error("Login succeeded but no tokens received for %s", 
-                                    wiki_config['name'])
+                self.logger.info("Successfully logged into %s", wiki_config['name'])
+                # Verify we have edit tokens
+                try:
+                    edit_token = site.get_token('csrf')
+                    self.logger.debug("Obtained edit token: %s", edit_token)
+                    return site
+                except Exception as e:
+                    self.logger.error("Failed to get edit token for %s: %s", 
+                                    wiki_config['name'], str(e))
                     return None
-                
-                self.logger.info("Successfully logged into %s. Tokens available: %s", 
-                               wiki_config['name'], ', '.join(site.tokens.keys()))
-                return site
             else:
                 self.logger.error("Login failed for %s - check credentials", 
                                 wiki_config['name'])
@@ -111,9 +106,6 @@ class WikiBot:
                 
         except LoginError as e:
             self.logger.error("Authentication failed for %s: %s", 
-                            wiki_config['name'], str(e))
-        except HTTPError as e:
-            self.logger.error("Connection error for %s: %s", 
                             wiki_config['name'], str(e))
         except Exception as e:
             self.logger.error("Unexpected error logging into %s: %s", 
@@ -127,25 +119,24 @@ class WikiBot:
         return processed
 
     def contribute(self, site, page_path, text):
-        """Edit a wiki page with comprehensive error handling"""
+        """Edit a wiki page with rate limiting and error handling"""
         try:
             page_path = page_path.lstrip('/')
-            self.logger.debug("Preparing to edit page: %s", page_path)
+            self.logger.debug("Preparing to edit: %s", page_path)
             
             page = site.pages[page_path]
             current_text = page.text()
             processed_text = self.process_text(text)
             new_text = f"{current_text}\n{processed_text}"
             
-            self.logger.debug("Current revision ID: %s", page.revision)
-            self.logger.debug("Content length - current: %d, new: %d", 
-                            len(current_text), len(new_text))
+            self.logger.debug("Revision info - current: %s, length: %d", 
+                            page.revision, len(current_text))
+            
+            # Rate limiting
+            time.sleep(self.edit_delay)
             
             edit_summary = "Bot: Automated update"
             self.logger.info("Attempting edit to %s", page_path)
-            
-            # Add delay to avoid rate limiting
-            time.sleep(self.edit_delay)
             
             edit_result = page.edit(new_text, summary=edit_summary)
             
@@ -164,7 +155,7 @@ class WikiBot:
 
     def run_single(self, wiki_name, page_path):
         """Update a single wiki page with full error handling"""
-        self.logger.info("Starting single update for %s - %s", wiki_name, page_path)
+        self.logger.info("Starting update for %s - %s", wiki_name, page_path)
         
         for wiki in self.config['wikis']:
             if wiki['name'] == wiki_name:
@@ -175,20 +166,19 @@ class WikiBot:
                 for page_config in wiki['pages']:
                     if page_config['path'].lstrip('/') == page_path.lstrip('/'):
                         try:
-                            self.logger.debug("Found matching page config: %s", page_config)
+                            self.logger.debug("Found page config: %s", page_config)
                             return self.contribute(site, page_path, page_config['text'])
                         except Exception as e:
-                            self.logger.error("Error in run_single for %s: %s", 
+                            self.logger.error("Error updating %s: %s", 
                                            page_path, str(e), exc_info=True)
                             return False
         
-        self.logger.warning("No matching configuration found for %s - %s", 
-                          wiki_name, page_path)
+        self.logger.warning("Configuration not found for %s - %s", wiki_name, page_path)
         return False
 
     def run(self):
         """Run updates for all configured wikis and pages"""
-        self.logger.info("Starting batch update for all configured wikis")
+        self.logger.info("Starting batch update of all wikis")
         success_count = 0
         
         for wiki in self.config['wikis']:
@@ -198,7 +188,6 @@ class WikiBot:
                 
             for page in wiki['pages']:
                 try:
-                    self.logger.debug("Processing page: %s", page['path'])
                     if self.contribute(site, page['path'], page['text']):
                         success_count += 1
                 except Exception as e:
