@@ -3,13 +3,12 @@ import sys
 import os
 import time
 from datetime import datetime
-from crontab import CronTab
+from croniter import croniter
 from bot import WikiBot
 
 class WikiScheduler:
     def __init__(self, config_path):
         self.bot = WikiBot(config_path)
-        self.cron = CronTab()
         self.jobs = []
     
     def setup_schedules(self):
@@ -17,33 +16,28 @@ class WikiScheduler:
         for wiki in self.bot.config['wikis']:
             for page in wiki['pages']:
                 if 'schedule' in page:
-                    job = self.cron.new(
-                        command=f'echo "Running {wiki["name"]} - {page["path"]}"',
-                        comment=f'{wiki["name"]}_{page["path"]}'
-                    )
-                    job.setall(page['schedule'])
+                    # Create croniter object for each schedule
+                    cron = croniter(page['schedule'], datetime.now())
                     self.jobs.append({
-                        'job': job,
+                        'cron': cron,
+                        'next_run': cron.get_next(datetime),
                         'wiki': wiki['name'],
                         'page': page['path']
                     })
                     print(f"Scheduled {wiki['name']} - {page['path']} with cron: {page['schedule']}")
     
-    def should_run(self, job):
-        """Check if a job should run now"""
-        return job.schedule().get_next() < datetime.now()
-    
     def run_pending(self):
         """Run all pending jobs"""
-        for item in self.jobs:
-            if self.should_run(item['job']):
-                print(f"Running scheduled update for {item['wiki']} - {item['page']}")
+        now = datetime.now()
+        for job in self.jobs:
+            if now >= job['next_run']:
+                print(f"Running scheduled update for {job['wiki']} - {job['page']}")
                 try:
-                    self.bot.run_single(item['wiki'], item['page'])
-                    # Update last run time
-                    item['job'].schedule().get_next()
+                    self.bot.run_single(job['wiki'], job['page'])
+                    # Update next run time
+                    job['next_run'] = job['cron'].get_next(datetime)
                 except Exception as e:
-                    print(f"Error updating {item['wiki']} - {item['page']}: {str(e)}")
+                    print(f"Error updating {job['wiki']} - {job['page']}: {str(e)}")
     
     def run(self):
         """Main scheduler loop"""
@@ -52,7 +46,7 @@ class WikiScheduler:
         try:
             while True:
                 self.run_pending()
-                time.sleep(60)
+                time.sleep(60)  # Check every minute
         except KeyboardInterrupt:
             print("Scheduler stopped.")
 
