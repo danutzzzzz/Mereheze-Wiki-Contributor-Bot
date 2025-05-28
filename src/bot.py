@@ -4,6 +4,7 @@ import re
 import time
 import yaml
 import logging
+import requests
 from datetime import datetime
 from mwclient import Site
 from mwclient.errors import LoginError
@@ -13,6 +14,7 @@ class WikiBot:
         self.logger = logger if logger else self._setup_default_logger()
         self.config = self._load_config(config_path)
         self.edit_delay = 5  # seconds between edits
+        self.session = requests.Session()
         self.logger.info("WikiBot initialized with %d wiki configurations", 
                         len(self.config['wikis']))
 
@@ -70,7 +72,7 @@ class WikiBot:
         return domain.rstrip('/')
 
     def login(self, wiki_config):
-        """Login to a wiki using BotPassword with detailed error reporting"""
+        """Login to a wiki using BotPassword with comprehensive error handling"""
         self.logger.info("Attempting login to %s as %s", 
                        wiki_config['name'], wiki_config['username'])
         
@@ -78,32 +80,42 @@ class WikiBot:
             domain = self._normalize_url(wiki_config['url'])
             self.logger.debug("Connecting to domain: %s", domain)
             
-            # Initialize site with retry settings
+            # Initialize site with custom session
             site = Site(
                 domain,
                 path='/w/',
-                max_retries=3,
-                retry_timeout=30
+                clients_useragent='MerehezeWikiBot/1.0',
+                do_init=True,
+                pool_connections=1,
+                pool_maxsize=1
             )
             
-            # Perform login
+            # First try standard login
             login_result = site.login(
                 wiki_config['username'],
                 wiki_config['password']
             )
             
+            if not login_result:
+                # If standard login fails, try with clientlogin
+                self.logger.debug("Standard login failed, trying clientlogin")
+                login_result = site.clientlogin(
+                    username=wiki_config['username'],
+                    password=wiki_config['password']
+                )
+            
             if login_result:
                 self.logger.info("Successfully logged into %s", wiki_config['name'])
-                # Verify basic API access
+                # Verify we can make API calls
                 try:
                     site.api('query', meta='siteinfo')
-                    self.logger.debug("Basic API access verified")
+                    self.logger.debug("API access verified")
                     return site
                 except Exception as e:
                     self.logger.error("API test failed after login: %s", str(e), exc_info=True)
                     return None
             else:
-                self.logger.error("Login returned False - check credentials")
+                self.logger.error("Login failed - check credentials and permissions")
                 return None
                 
         except LoginError as e:
@@ -113,7 +125,6 @@ class WikiBot:
                 self.logger.error("Login error details:")
                 self.logger.error("- Code: %s", error_info.get('code', 'unknown'))
                 self.logger.error("- Info: %s", error_info.get('info', 'unknown'))
-                self.logger.error("- Reason: %s", error_info.get('reason', 'unknown'))
             else:
                 self.logger.error("Login error: %s", str(e), exc_info=True)
         except Exception as e:
