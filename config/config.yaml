@@ -1,10 +1,25 @@
 wikis:
   - name: "Example Wiki"
-    url: "https://example.mereheze.org"
+    url: "https://example.mereheze.org"		# Must include https://
     username: "YourBotUsername"
     password: "YourBotPassword"
     pages:
-      - path: "WikiPage/Subpage"
+      - path: "WikiPage/Subpage"		# No leading slash
+        text: |
+          == Weekly Update ==
+          This is an automated update from your bot.
+          Current date: {{ current_date }}
+        schedule: "0 12 * * 1"  # Every Monday at 12:00
+      - path: "Another/Page"
+        text: "Simple update"
+        schedule: "0 0 1 * *"    # First day of each month at midnight
+
+  - name: "Example Wiki 2"
+    url: "https://example2.mereheze.org"	# Must include https://
+    username: "YourBotUsername"
+    password: "YourBotPassword"
+    pages:
+      - path: "WikiPage/Subpage"		# No leading slash
         text: |
           == Weekly Update ==
           This is an automated update from your bot.

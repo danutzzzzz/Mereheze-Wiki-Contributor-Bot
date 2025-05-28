@@ -31,7 +31,6 @@ class WikiBot:
             with open(path, 'r') as f:
                 config = yaml.safe_load(f)
             
-            # Validate config structure
             if not config or 'wikis' not in config:
                 raise ValueError("Invalid configuration: missing 'wikis' section")
             
@@ -50,7 +49,6 @@ class WikiBot:
             if field not in wiki_config:
                 raise ValueError(f"Missing required field in wiki config: {field}")
         
-        # Validate URL format
         if not re.match(r'^https?://', wiki_config['url']):
             raise ValueError(f"Invalid URL format for {wiki_config['name']}. Must start with http:// or https://")
 
@@ -73,25 +71,26 @@ class WikiBot:
             domain = self._normalize_url(wiki_config['url'])
             self.logger.debug("Connecting to domain: %s", domain)
             
+            # Initialize site with timeout settings
             site = Site(
                 domain,
                 path='/w/',
-                retry_timeout=30,  # Increased timeout
-                max_retries=3      # Limited retries
+                max_retries=3,
+                retry_timeout=30
             )
             
+            # Simple login without retry_timeout
             login_result = site.login(
                 wiki_config['username'],
-                wiki_config['password'],
-                retry_timeout=10
+                wiki_config['password']
             )
             
             if login_result:
                 self.logger.info("Successfully logged into %s as %s", 
-                                wiki_config['name'], wiki_config['username'])
+                               wiki_config['name'], wiki_config['username'])
             else:
                 self.logger.error("Login failed for %s - check credentials", 
-                                 wiki_config['name'])
+                                wiki_config['name'])
             
             return site if login_result else None
             
@@ -116,8 +115,6 @@ class WikiBot:
         """Edit a wiki page with comprehensive logging"""
         try:
             self.logger.debug("Preparing to edit page: %s", page_path)
-            
-            # Clean page path
             page_path = page_path.lstrip('/')
             page = site.pages[page_path]
             
@@ -139,7 +136,7 @@ class WikiBot:
                                page_path, page.revision)
             else:
                 self.logger.warning("Edit to %s returned False (no change made)", 
-                                  page_path)
+                                   page_path)
             
             return edit_result
             
