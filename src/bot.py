@@ -41,7 +41,7 @@ class WikiBot:
             
             return config
         except Exception as e:
-            self.logger.error("Failed to load configuration: %s", str(e))
+            self.logger.error("Failed to load configuration: %s", str(e), exc_info=True)
             raise
 
     def _validate_wiki_config(self, wiki_config):
@@ -70,18 +70,23 @@ class WikiBot:
         return domain.rstrip('/')
 
     def login(self, wiki_config):
-        """Login to a wiki using BotPassword with basic authentication"""
-        self.logger.debug("Attempting login to %s as %s", 
-                        wiki_config['name'], wiki_config['username'])
+        """Login to a wiki using BotPassword with detailed error reporting"""
+        self.logger.info("Attempting login to %s as %s", 
+                       wiki_config['name'], wiki_config['username'])
         
         try:
             domain = self._normalize_url(wiki_config['url'])
-            self.logger.debug("Connecting to: %s", domain)
+            self.logger.debug("Connecting to domain: %s", domain)
             
-            # Basic site connection
-            site = Site(domain, path='/w/')
+            # Initialize site with retry settings
+            site = Site(
+                domain,
+                path='/w/',
+                max_retries=3,
+                retry_timeout=30
+            )
             
-            # Simple login without advanced parameters
+            # Perform login
             login_result = site.login(
                 wiki_config['username'],
                 wiki_config['password']
@@ -89,23 +94,28 @@ class WikiBot:
             
             if login_result:
                 self.logger.info("Successfully logged into %s", wiki_config['name'])
-                # Verify we can get a token
+                # Verify basic API access
                 try:
-                    edit_token = site.get_token('csrf')
-                    self.logger.debug("Obtained edit token")
+                    site.api('query', meta='siteinfo')
+                    self.logger.debug("Basic API access verified")
                     return site
                 except Exception as e:
-                    self.logger.error("Failed to get edit token for %s: %s", 
-                                    wiki_config['name'], str(e))
+                    self.logger.error("API test failed after login: %s", str(e), exc_info=True)
                     return None
             else:
-                self.logger.error("Login failed for %s - check credentials", 
-                                wiki_config['name'])
+                self.logger.error("Login returned False - check credentials")
                 return None
                 
         except LoginError as e:
-            self.logger.error("Authentication failed for %s: %s", 
-                            wiki_config['name'], str(e))
+            self.logger.error("Authentication failed for %s", wiki_config['name'])
+            if hasattr(e, 'args') and len(e.args) > 1 and isinstance(e.args[1], dict):
+                error_info = e.args[1]
+                self.logger.error("Login error details:")
+                self.logger.error("- Code: %s", error_info.get('code', 'unknown'))
+                self.logger.error("- Info: %s", error_info.get('info', 'unknown'))
+                self.logger.error("- Reason: %s", error_info.get('reason', 'unknown'))
+            else:
+                self.logger.error("Login error: %s", str(e), exc_info=True)
         except Exception as e:
             self.logger.error("Unexpected error logging into %s: %s", 
                             wiki_config['name'], str(e), exc_info=True)
@@ -118,18 +128,17 @@ class WikiBot:
         return processed
 
     def contribute(self, site, page_path, text):
-        """Edit a wiki page with rate limiting and error handling"""
+        """Edit a wiki page with comprehensive error handling"""
         try:
             page_path = page_path.lstrip('/')
-            self.logger.debug("Preparing to edit: %s", page_path)
+            self.logger.debug("Preparing to edit page: %s", page_path)
             
             page = site.pages[page_path]
             current_text = page.text()
             processed_text = self.process_text(text)
             new_text = f"{current_text}\n{processed_text}"
             
-            self.logger.debug("Revision info - current: %s, length: %d", 
-                            page.revision, len(current_text))
+            self.logger.debug("Current revision ID: %s", page.revision)
             
             # Rate limiting
             time.sleep(self.edit_delay)
