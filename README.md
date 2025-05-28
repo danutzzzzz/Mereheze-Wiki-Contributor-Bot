@@ -30,12 +30,12 @@ Edit the `config/config.yaml` file to specify:
    docker run -d --name wiki-bot mereheze-wiki-contributor
 
 ### Docker Compose
-
-docker run -d --name MWCB \
-  --restart always \
-  -v /your-path/MWCB/config:/app/config/ \
-  -e TZ=America/New_York \
-  daNutz/MWCB:latest
+   ```bash
+   docker run -d --name MWCB \
+     --restart always \
+     -v /your-path/MWCB/config:/app/config/ \
+     -e TZ=America/New_York \
+     danutzzzzz/MWCB:latest
 
 ## Implementation Notes
 
