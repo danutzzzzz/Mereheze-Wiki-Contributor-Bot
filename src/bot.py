@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import time
 import yaml
 import logging
 from datetime import datetime
@@ -12,6 +13,7 @@ class WikiBot:
     def __init__(self, config_path, logger=None):
         self.logger = logger if logger else self._setup_default_logger()
         self.config = self._load_config(config_path)
+        self.edit_delay = 5  # seconds between edits to avoid rate limiting
         self.logger.info("WikiBot initialized with %d wiki configurations", len(self.config['wikis']))
 
     def _setup_default_logger(self):
@@ -52,6 +54,9 @@ class WikiBot:
         if not re.match(r'^https?://', wiki_config['url']):
             raise ValueError(f"Invalid URL format for {wiki_config['name']}. Must start with http:// or https://")
 
+        if '@' not in wiki_config['username']:
+            self.logger.warning("Username '%s' doesn't appear to be a BotPassword (missing @)", wiki_config['username'])
+
     def _normalize_url(self, url):
         """Normalize wiki URL to extract domain"""
         url = url.strip()
@@ -64,36 +69,46 @@ class WikiBot:
         return domain.rstrip('/')
 
     def login(self, wiki_config):
-        """Login to a wiki with proper error handling"""
-        self.logger.debug("Attempting login to %s", wiki_config['name'])
+        """Login to a wiki using BotPassword with proper authentication"""
+        self.logger.debug("Attempting login to %s as %s", 
+                        wiki_config['name'], wiki_config['username'])
         
         try:
             domain = self._normalize_url(wiki_config['url'])
             self.logger.debug("Connecting to domain: %s", domain)
             
-            # Initialize site with timeout settings
+            # Initialize site with modern settings
             site = Site(
                 domain,
                 path='/w/',
                 max_retries=3,
-                retry_timeout=30
+                retry_timeout=30,
+                do_init=True,  # Required for modern auth
+                pool_connections=1,
+                pool_maxsize=1
             )
             
-            # Simple login without retry_timeout
+            # Modern authentication with clientlogin
             login_result = site.login(
                 wiki_config['username'],
-                wiki_config['password']
+                wiki_config['password'],
+                login_method="clientlogin"
             )
             
             if login_result:
-                self.logger.info("Successfully logged into %s as %s", 
-                               wiki_config['name'], wiki_config['username'])
+                if not site.tokens:
+                    self.logger.error("Login succeeded but no tokens received for %s", 
+                                    wiki_config['name'])
+                    return None
+                
+                self.logger.info("Successfully logged into %s. Tokens available: %s", 
+                               wiki_config['name'], ', '.join(site.tokens.keys()))
+                return site
             else:
                 self.logger.error("Login failed for %s - check credentials", 
                                 wiki_config['name'])
-            
-            return site if login_result else None
-            
+                return None
+                
         except LoginError as e:
             self.logger.error("Authentication failed for %s: %s", 
                             wiki_config['name'], str(e))
@@ -112,34 +127,37 @@ class WikiBot:
         return processed
 
     def contribute(self, site, page_path, text):
-        """Edit a wiki page with comprehensive logging"""
+        """Edit a wiki page with comprehensive error handling"""
         try:
-            self.logger.debug("Preparing to edit page: %s", page_path)
             page_path = page_path.lstrip('/')
-            page = site.pages[page_path]
+            self.logger.debug("Preparing to edit page: %s", page_path)
             
+            page = site.pages[page_path]
             current_text = page.text()
             processed_text = self.process_text(text)
             new_text = f"{current_text}\n{processed_text}"
             
             self.logger.debug("Current revision ID: %s", page.revision)
-            self.logger.debug("Current content length: %d chars", len(current_text))
+            self.logger.debug("Content length - current: %d, new: %d", 
+                            len(current_text), len(new_text))
             
             edit_summary = "Bot: Automated update"
-            self.logger.info("Attempting edit to %s with summary: %s", 
-                           page_path, edit_summary)
+            self.logger.info("Attempting edit to %s", page_path)
+            
+            # Add delay to avoid rate limiting
+            time.sleep(self.edit_delay)
             
             edit_result = page.edit(new_text, summary=edit_summary)
             
             if edit_result:
                 self.logger.info("Successfully edited %s. New revision: %s", 
                                page_path, page.revision)
+                return True
             else:
                 self.logger.warning("Edit to %s returned False (no change made)", 
-                                   page_path)
-            
-            return edit_result
-            
+                                  page_path)
+                return False
+                
         except Exception as e:
             self.logger.error("Failed to edit %s: %s", page_path, str(e), exc_info=True)
             return False
@@ -171,6 +189,7 @@ class WikiBot:
     def run(self):
         """Run updates for all configured wikis and pages"""
         self.logger.info("Starting batch update for all configured wikis")
+        success_count = 0
         
         for wiki in self.config['wikis']:
             site = self.login(wiki)
@@ -180,8 +199,12 @@ class WikiBot:
             for page in wiki['pages']:
                 try:
                     self.logger.debug("Processing page: %s", page['path'])
-                    self.contribute(site, page['path'], page['text'])
+                    if self.contribute(site, page['path'], page['text']):
+                        success_count += 1
                 except Exception as e:
                     self.logger.error("Error updating %s: %s", 
                                    page['path'], str(e), exc_info=True)
                     continue
+        
+        self.logger.info("Batch update completed. %d/%d edits succeeded",
+                        success_count, sum(len(w['pages']) for w in self.config['wikis']))
