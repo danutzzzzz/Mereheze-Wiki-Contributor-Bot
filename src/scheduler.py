@@ -1,3 +1,4 @@
+from src.bot import WikiBot
 import os
 import time
 import schedule
