@@ -1,90 +1,190 @@
+#!/usr/bin/env python3
 import os
+import re
 import yaml
 import logging
 from datetime import datetime
 from mwclient import Site
 from mwclient.errors import LoginError
+from urllib3.exceptions import HTTPError
 
 class WikiBot:
     def __init__(self, config_path, logger=None):
-        self.logger = logger if logger else logging.getLogger('bot')
-        self.config = self.load_config(config_path)
-        
-    def load_config(self, path):
-        self.logger.debug(f"Loading config from {path}")
+        self.logger = logger if logger else self._setup_default_logger()
+        self.config = self._load_config(config_path)
+        self.logger.info("WikiBot initialized with %d wiki configurations", len(self.config['wikis']))
+
+    def _setup_default_logger(self):
+        """Setup default logger if none provided"""
+        logger = logging.getLogger('WikiBot')
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        return logger
+
+    def _load_config(self, path):
+        """Load and validate configuration file"""
+        self.logger.debug("Loading configuration from %s", path)
         try:
             with open(path, 'r') as f:
-                return yaml.safe_load(f)
+                config = yaml.safe_load(f)
+            
+            # Validate config structure
+            if not config or 'wikis' not in config:
+                raise ValueError("Invalid configuration: missing 'wikis' section")
+            
+            for wiki in config['wikis']:
+                self._validate_wiki_config(wiki)
+            
+            return config
         except Exception as e:
-            self.logger.error(f"Failed to load config: {str(e)}")
+            self.logger.error("Failed to load configuration: %s", str(e))
             raise
+
+    def _validate_wiki_config(self, wiki_config):
+        """Validate individual wiki configuration"""
+        required_fields = ['name', 'url', 'username', 'password', 'pages']
+        for field in required_fields:
+            if field not in wiki_config:
+                raise ValueError(f"Missing required field in wiki config: {field}")
+        
+        # Validate URL format
+        if not re.match(r'^https?://', wiki_config['url']):
+            raise ValueError(f"Invalid URL format for {wiki_config['name']}. Must start with http:// or https://")
+
+    def _normalize_url(self, url):
+        """Normalize wiki URL to extract domain"""
+        url = url.strip()
+        if url.startswith('http://'):
+            domain = url[7:]
+        elif url.startswith('https://'):
+            domain = url[8:]
+        else:
+            domain = url
+        return domain.rstrip('/')
 
     def login(self, wiki_config):
-        self.logger.debug(f"Attempting login to {wiki_config['name']}")
+        """Login to a wiki with proper error handling"""
+        self.logger.debug("Attempting login to %s", wiki_config['name'])
+        
         try:
-            site = Site(wiki_config['url'], path='/w/')
-            login_result = site.login(wiki_config['username'], wiki_config['password'])
-            self.logger.info(
-                f"Login {'successful' if login_result else 'failed'} "
-                f"to {wiki_config['name']} as {wiki_config['username']}"
+            domain = self._normalize_url(wiki_config['url'])
+            self.logger.debug("Connecting to domain: %s", domain)
+            
+            site = Site(
+                domain,
+                path='/w/',
+                retry_timeout=30,  # Increased timeout
+                max_retries=3      # Limited retries
             )
+            
+            login_result = site.login(
+                wiki_config['username'],
+                wiki_config['password'],
+                retry_timeout=10
+            )
+            
+            if login_result:
+                self.logger.info("Successfully logged into %s as %s", 
+                                wiki_config['name'], wiki_config['username'])
+            else:
+                self.logger.error("Login failed for %s - check credentials", 
+                                 wiki_config['name'])
+            
             return site if login_result else None
+            
         except LoginError as e:
-            self.logger.error(f"Login failed for {wiki_config['name']}: {str(e)}")
-            return None
+            self.logger.error("Authentication failed for %s: %s", 
+                            wiki_config['name'], str(e))
+        except HTTPError as e:
+            self.logger.error("Connection error for %s: %s", 
+                            wiki_config['name'], str(e))
         except Exception as e:
-            self.logger.error(f"Unexpected login error for {wiki_config['name']}: {str(e)}")
-            return None
+            self.logger.error("Unexpected error logging into %s: %s", 
+                            wiki_config['name'], str(e), exc_info=True)
+        return None
 
     def process_text(self, text):
-        """Replace template variables in text"""
+        """Process template variables in text"""
         processed = text.replace('{{ current_date }}', datetime.now().strftime('%Y-%m-%d'))
-        self.logger.trace(f"Processed text: {processed}")
+        self.logger.trace("Processed text: %s", processed)
         return processed
-    
+
     def contribute(self, site, page_path, text):
-        self.logger.debug(f"Preparing to edit {page_path}")
+        """Edit a wiki page with comprehensive logging"""
         try:
+            self.logger.debug("Preparing to edit page: %s", page_path)
+            
+            # Clean page path
+            page_path = page_path.lstrip('/')
             page = site.pages[page_path]
+            
             current_text = page.text()
             processed_text = self.process_text(text)
-            
             new_text = f"{current_text}\n{processed_text}"
             
-            self.logger.info(f"Editing page {page_path}")
-            self.logger.debug(f"Current page length: {len(current_text)} chars")
-            self.logger.trace(f"Current content:\n{current_text}")
-            self.logger.debug(f"New content length: {len(new_text)} chars")
+            self.logger.debug("Current revision ID: %s", page.revision)
+            self.logger.debug("Current content length: %d chars", len(current_text))
             
-            edit_result = page.edit(new_text, summary="Bot: Automated update")
-            self.logger.info(
-                f"Edit {'succeeded' if edit_result else 'failed'} "
-                f"for {page_path}"
-            )
+            edit_summary = "Bot: Automated update"
+            self.logger.info("Attempting edit to %s with summary: %s", 
+                           page_path, edit_summary)
+            
+            edit_result = page.edit(new_text, summary=edit_summary)
+            
+            if edit_result:
+                self.logger.info("Successfully edited %s. New revision: %s", 
+                               page_path, page.revision)
+            else:
+                self.logger.warning("Edit to %s returned False (no change made)", 
+                                  page_path)
+            
             return edit_result
+            
         except Exception as e:
-            self.logger.error(f"Edit failed for {page_path}: {str(e)}")
-            raise
+            self.logger.error("Failed to edit %s: %s", page_path, str(e), exc_info=True)
+            return False
 
     def run_single(self, wiki_name, page_path):
-        """Update a single wiki page"""
-        self.logger.debug(f"Running single update for {wiki_name} - {page_path}")
+        """Update a single wiki page with full error handling"""
+        self.logger.info("Starting single update for %s - %s", wiki_name, page_path)
+        
         for wiki in self.config['wikis']:
             if wiki['name'] == wiki_name:
                 site = self.login(wiki)
                 if not site:
                     return False
                 
-                for page in wiki['pages']:
-                    if page['path'] == page_path:
+                for page_config in wiki['pages']:
+                    if page_config['path'].lstrip('/') == page_path.lstrip('/'):
                         try:
-                            self.logger.debug(f"Found matching page config: {page}")
-                            return self.contribute(site, page['path'], page['text'])
+                            self.logger.debug("Found matching page config: %s", page_config)
+                            return self.contribute(site, page_path, page_config['text'])
                         except Exception as e:
-                            self.logger.error(
-                                f"Error updating {wiki_name} - {page_path}: {str(e)}",
-                                exc_info=True
-                            )
+                            self.logger.error("Error in run_single for %s: %s", 
+                                           page_path, str(e), exc_info=True)
                             return False
-        self.logger.warning(f"No matching page found: {wiki_name} - {page_path}")
+        
+        self.logger.warning("No matching configuration found for %s - %s", 
+                          wiki_name, page_path)
         return False
+
+    def run(self):
+        """Run updates for all configured wikis and pages"""
+        self.logger.info("Starting batch update for all configured wikis")
+        
+        for wiki in self.config['wikis']:
+            site = self.login(wiki)
+            if not site:
+                continue
+                
+            for page in wiki['pages']:
+                try:
+                    self.logger.debug("Processing page: %s", page['path'])
+                    self.contribute(site, page['path'], page['text'])
+                except Exception as e:
+                    self.logger.error("Error updating %s: %s", 
+                                   page['path'], str(e), exc_info=True)
+                    continue
