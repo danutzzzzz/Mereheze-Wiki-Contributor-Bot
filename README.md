@@ -26,7 +26,7 @@ Edit the `config/config.yaml` file to specify:
    docker build -t mereheze-wiki-contributor .
 
 2. Run the container:
-```bash
+   ```bash
    docker run -d --name wiki-bot mereheze-wiki-contributor
 
 ### Docker Compose
