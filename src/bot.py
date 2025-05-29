@@ -2,10 +2,14 @@
 import os
 import logging
 import requests
+import re
 from datetime import datetime
+from string import Template
+from typing import Dict, Optional, Any
 
 class WikiBot:
-    def __init__(self, config_path, logger=None):
+    def __init__(self, config_path: str, logger: Optional[logging.Logger] = None):
+        """Initialize the WikiBot with configuration and logger."""
         self.logger = logger if logger else self._setup_default_logger()
         self.config = self._load_config(config_path)
         self.session = requests.Session()
@@ -15,7 +19,8 @@ class WikiBot:
         })
         self.logger.info("WikiBot initialized for Miraheze")
 
-    def _setup_default_logger(self):
+    def _setup_default_logger(self) -> logging.Logger:
+        """Set up a default logger if none is provided."""
         logger = logging.getLogger('WikiBot')
         logger.setLevel(logging.INFO)
         handler = logging.StreamHandler()
@@ -24,7 +29,8 @@ class WikiBot:
         logger.addHandler(handler)
         return logger
 
-    def _load_config(self, path):
+    def _load_config(self, path: str) -> Dict[str, Any]:
+        """Load configuration from YAML file."""
         try:
             with open(path, 'r') as f:
                 import yaml
@@ -33,8 +39,8 @@ class WikiBot:
             self.logger.error("Config load failed: %s", str(e))
             raise
 
-    def _get_login_token(self, api_url):
-        """Get login token using BotPassword-specific endpoint"""
+    def _get_login_token(self, api_url: str) -> Optional[str]:
+        """Get login token using BotPassword-specific endpoint."""
         try:
             response = self.session.get(
                 api_url,
@@ -51,8 +57,8 @@ class WikiBot:
             self.logger.error("Failed to get login token: %s", str(e))
             return None
 
-    def login(self, wiki_config):
-        """Proper BotPassword authentication for Miraheze"""
+    def login(self, wiki_config: Dict[str, Any]) -> Optional[str]:
+        """Perform BotPassword authentication for Miraheze."""
         self.logger.info("Attempting BotPassword login to %s", wiki_config['name'])
         
         try:
@@ -90,8 +96,8 @@ class WikiBot:
             self.logger.error("Login error: %s", str(e), exc_info=True)
             return None
 
-    def _get_csrf_token(self, api_url):
-        """Get CSRF token for edits"""
+    def _get_csrf_token(self, api_url: str) -> Optional[str]:
+        """Get CSRF token for edits."""
         try:
             response = self.session.get(
                 api_url,
@@ -107,10 +113,80 @@ class WikiBot:
             self.logger.error("Failed to get CSRF token: %s", str(e))
             return None
 
-    def edit_page(self, api_url, page_path, text):
-        """Make edit and provide detailed confirmation"""
+    def _process_template(self, text: str, template_data: Dict[str, Any]) -> str:
+        """
+        Process templates in the text using provided data.
+        
+        Args:
+            text: The text containing templates to process
+            template_data: Dictionary of template parameters
+            
+        Returns:
+            Processed text with templates replaced
+        """
+        try:
+            # Handle standard Python string templates
+            template = Template(text)
+            processed_text = template.safe_substitute(template_data)
+            
+            # Handle MediaWiki-style templates ({{TemplateName|param=value}})
+            def replace_wiki_template(match):
+                template_name = match.group(1).strip()
+                params_str = match.group(2) if match.group(2) else ""
+                
+                # Simple parameter parsing (supports both named and positional params)
+                params = {}
+                if params_str:
+                    for param in params_str.split('|'):
+                        if '=' in param:
+                            key, value = param.split('=', 1)
+                            params[key.strip()] = value.strip()
+                
+                # Merge with provided template_data
+                merged_params = {**params, **template_data}
+                
+                # If template exists in our data, use it
+                if template_name in template_data:
+                    return str(template_data[template_name])
+                
+                # Otherwise reconstruct the template with new values
+                param_str = '|'.join(f"{k}={v}" for k, v in merged_params.items())
+                return f"{{{{{template_name}|{param_str}}}}}"
+            
+            # Process MediaWiki templates
+            processed_text = re.sub(
+                r'\{\{(.*?)(?:\|(.*?))?\}\}',
+                replace_wiki_template,
+                processed_text,
+                flags=re.DOTALL
+            )
+            
+            return processed_text
+        except Exception as e:
+            self.logger.error(f"Template processing error: {str(e)}")
+            return text
+
+    def edit_page(self, api_url: str, page_path: str, text: str, template_data: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Edit a wiki page with optional template processing.
+        
+        Args:
+            api_url: The API URL of the wiki
+            page_path: Path of the page to edit
+            text: The text to put on the page
+            template_data: Optional dictionary of template parameters
+            
+        Returns:
+            True if edit was successful, False otherwise
+        """
         try:
             self.logger.info(f"Preparing to edit: {page_path}")
+            
+            # Process templates if data is provided
+            processed_text = self._process_template(text, template_data or {})
+            
+            if processed_text != text:
+                self.logger.debug("Template processing completed")
             
             # Get CSRF token
             token = self._get_csrf_token(api_url)
@@ -122,7 +198,7 @@ class WikiBot:
             edit_data = {
                 'action': 'edit',
                 'title': page_path.lstrip('/'),
-                'text': text,
+                'text': processed_text,
                 'summary': 'Bot: Automated update',
                 'token': token,
                 'format': 'json',
@@ -156,8 +232,18 @@ class WikiBot:
             self.logger.error(f"❌ Edit failed for {page_path}: {str(e)}", exc_info=True)
             return False
 
-    def run_single(self, wiki_name, page_path):
-        """Handle single page update"""
+    def run_single(self, wiki_name: str, page_path: str, template_data: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Handle single page update with template processing.
+        
+        Args:
+            wiki_name: Name of the wiki from config
+            page_path: Path of the page to edit
+            template_data: Optional dictionary of template parameters
+            
+        Returns:
+            True if edit was successful, False otherwise
+        """
         self.logger.info("Processing %s - %s", wiki_name, page_path)
         
         for wiki in self.config.get('wikis', []):
@@ -168,5 +254,52 @@ class WikiBot:
                 
                 for page in wiki.get('pages', []):
                     if page['path'].lstrip('/') == page_path.lstrip('/'):
-                        return self.edit_page(api_url, page['path'], page['text'])
+                        return self.edit_page(
+                            api_url,
+                            page['path'],
+                            page['text'],
+                            template_data
+                        )
         return False
+
+    def get_page_content(self, api_url: str, page_title: str) -> Optional[str]:
+        """
+        Retrieve the current content of a wiki page.
+        
+        Args:
+            api_url: The API URL of the wiki
+            page_title: Title of the page to retrieve
+            
+        Returns:
+            The page content as string, or None if failed
+        """
+        try:
+            params = {
+                'action': 'query',
+                'prop': 'revisions',
+                'rvprop': 'content',
+                'titles': page_title,
+                'format': 'json'
+            }
+            
+            response = self.session.get(api_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            pages = data.get('query', {}).get('pages', {})
+            if not pages:
+                return None
+                
+            page = next(iter(pages.values()))  # Get first page
+            if 'missing' in page:
+                return None
+                
+            revisions = page.get('revisions', [])
+            if not revisions:
+                return None
+                
+            return revisions[0].get('*', '')
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get page content for {page_title}: {str(e)}")
+            return None

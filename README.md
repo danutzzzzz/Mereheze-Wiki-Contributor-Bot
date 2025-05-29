@@ -38,6 +38,19 @@ Edit the `config/config.yaml` file to specify:
      danutzzzzz/MWCB:latest
    ```
 
+## Configuration
+
+### Create Bot Account
+
+Go to Special:BotPasswords, enter  the bot name and then select the Applicable grants:
+   - Basic rights
+   - High-volume (bot) access
+   - Edit existing pages
+
+## Manually Trigger
+   ```bash
+   python bot.py --wiki <Name> --url https://<URL> --user <Username>@<BotName> --token <YOUR_TOKEN>
+
 ## Implementation Notes
 
 1. **Security**: The bot uses standard wiki login credentials. Make sure to:
