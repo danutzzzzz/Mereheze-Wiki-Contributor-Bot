@@ -1,8 +1,8 @@
 # set version label
 ARG BUILD_DATE
 ARG VERSION
-#FROM python:3.9-alpine
-FROM python:3.9-slim
+FROM python:3.9-alpine
+#FROM python:3.9-slim
 LABEL build_version="Build-version:- ${VERSION} Build-date:- ${BUILD_DATE}"
 LABEL maintainer="danutzzzzz"
 
