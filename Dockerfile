@@ -1,3 +1,9 @@
+# set version label
+ARG BUILD_DATE
+ARG VERSION
+LABEL build_version="Build-version:- ${VERSION} Build-date:- ${BUILD_DATE}"
+LABEL maintainer="danutzzzzz"
+
 # Use Alpine Linux for small image size
 FROM python:3.9-alpine
 
