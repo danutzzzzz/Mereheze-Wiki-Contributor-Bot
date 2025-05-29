@@ -8,7 +8,7 @@ wikis:
         text: |
           == Weekly Update ==
           This is an automated update from your bot.
-          Current date: {{ current_date }}
+          Current date: [[[Current datetime]]]
         schedule: "0 12 * * 1"          # Every Monday at 12:00
       - path: "Another/Page"
         text: "Simple update"
@@ -23,7 +23,7 @@ wikis:
         text: |
           == Weekly Update ==
           This is an automated update from your bot.
-          Current date: {{ current_date }}
+          Current date: [[[Current datetime]]]
         schedule: "0 12 * * 1"          # Every Monday at 12:00
       - path: "Another/Page"
         text: "Simple update"
