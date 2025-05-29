@@ -30,7 +30,7 @@ jobs:
     
     - name: Build and push to Docker Hub
       if: github.ref == 'refs/heads/main'
-      uses: docker/build-push-action@v2
+      uses: docker/build-push-action@v4
       with:
         push: true
         tags: |
@@ -39,7 +39,7 @@ jobs:
     
     - name: Build and push to GitHub Container Registry
       if: github.ref == 'refs/heads/main'
-      uses: docker/build-push-action@v2
+      uses: docker/build-push-action@v4
       with:
         push: true
         tags: |
