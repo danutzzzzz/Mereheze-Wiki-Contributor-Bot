@@ -115,7 +115,8 @@ class WikiBot:
 
     def _process_template(self, text: str, template_data: Dict[str, Any]) -> str:
         """
-        Process templates in the text using provided data.
+        Process templates in the text using provided data, with special handling for
+        common MediaWiki templates like Current datetime.
         
         Args:
             text: The text containing templates to process
@@ -125,33 +126,27 @@ class WikiBot:
             Processed text with templates replaced
         """
         try:
-            # Handle standard Python string templates
+            # First handle standard Python string templates
             template = Template(text)
             processed_text = template.safe_substitute(template_data)
             
-            # Handle MediaWiki-style templates ({{TemplateName|param=value}})
+            # Handle MediaWiki-style templates with special cases
             def replace_wiki_template(match):
                 template_name = match.group(1).strip()
                 params_str = match.group(2) if match.group(2) else ""
                 
-                # Simple parameter parsing (supports both named and positional params)
-                params = {}
-                if params_str:
-                    for param in params_str.split('|'):
-                        if '=' in param:
-                            key, value = param.split('=', 1)
-                            params[key.strip()] = value.strip()
+                # Special handling for common templates
+                if template_name.lower() == 'current datetime':
+                    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                elif template_name.lower() == 'current date':
+                    return datetime.now().strftime('%Y-%m-%d')
                 
-                # Merge with provided template_data
-                merged_params = {**params, **template_data}
-                
-                # If template exists in our data, use it
+                # Handle other templates with provided data
                 if template_name in template_data:
                     return str(template_data[template_name])
                 
-                # Otherwise reconstruct the template with new values
-                param_str = '|'.join(f"{k}={v}" for k, v in merged_params.items())
-                return f"{{{{{template_name}|{param_str}}}}}"
+                # If no replacement found, keep the original template
+                return match.group(0)
             
             # Process MediaWiki templates
             processed_text = re.sub(
