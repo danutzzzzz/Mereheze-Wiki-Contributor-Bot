@@ -115,44 +115,33 @@ class WikiBot:
 
     def _process_template(self, text: str, template_data: Dict[str, Any]) -> str:
         """
-        Process templates in the text using provided data, with special handling for
-        common MediaWiki templates like Current datetime.
-        
-        Args:
-            text: The text containing templates to process
-            template_data: Dictionary of template parameters
-            
-        Returns:
-            Processed text with templates replaced
+        Process custom templates in the text using provided data.
+        Uses [[[template]]] syntax for client-side templates to avoid conflict
+        with MediaWiki's server-side templates.
         """
         try:
-            # First handle standard Python string templates
-            template = Template(text)
-            processed_text = template.safe_substitute(template_data)
-            
-            # Handle MediaWiki-style templates with special cases
-            def replace_wiki_template(match):
-                template_name = match.group(1).strip()
-                params_str = match.group(2) if match.group(2) else ""
+            # Replace our custom client-side templates
+            def replace_custom_template(match):
+                template_name = match.group(1).strip().lower()
                 
-                # Special handling for common templates
-                if template_name.lower() == 'current datetime':
+                # Handle date/time templates
+                if template_name == 'current datetime':
                     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                elif template_name.lower() == 'current date':
+                elif template_name == 'current date':
                     return datetime.now().strftime('%Y-%m-%d')
                 
-                # Handle other templates with provided data
+                # Handle other templates from template_data
                 if template_name in template_data:
                     return str(template_data[template_name])
                 
-                # If no replacement found, keep the original template
+                # If no replacement found, keep the original
                 return match.group(0)
             
-            # Process MediaWiki templates
+            # Process our custom templates (using [[[...]]] syntax)
             processed_text = re.sub(
-                r'\{\{(.*?)(?:\|(.*?))?\}\}',
-                replace_wiki_template,
-                processed_text,
+                r'\[\[\[(.*?)\]\]\]',
+                replace_custom_template,
+                text,
                 flags=re.DOTALL
             )
             
