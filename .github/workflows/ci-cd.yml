@@ -1,10 +1,11 @@
 name: CI/CD Pipeline
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+#  push:
+#    branches: [ main ]
+#  pull_request:
+#    branches: [ main ]
 
 jobs:
   build:
@@ -45,3 +46,14 @@ jobs:
         tags: |
           ghcr.io/${{ github.repository_owner }}/mereheze-wiki-contributor:latest
           ghcr.io/${{ github.repository_owner }}/mereheze-wiki-contributor:${{ github.sha }}
+
+    - name: Update Docker Hub Description
+      uses: peter-evans/dockerhub-description@v4
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+        repository: danutzzzzz/mereheze-wiki-contributor # Replace with your actual repo
+        # Optional: Use your GitHub repo description as the short description on Docker Hub
+        short-description: ${{ github.event.repository.description }}
+        # Optional: If your README is not at the root, specify the path
+        # readme-filepath: ./docs/README.md 
