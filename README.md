@@ -31,11 +31,11 @@ Edit the `config/config.yaml` file to specify:
 
 ### Docker Compose
    ```bash
-   docker run -d --name MWCB \
+   docker run -d --name mereheze-wiki-contributor \
      --restart always \
-     -v /your-path/MWCB/config:/app/config/ \
+     -v /your-path/mereheze-wiki-contributor/config:/app/config/ \
      -e TZ=America/New_York \
-     danutzzzzz/MWCB:latest
+     danutzzzzz/danutzzzzz/mereheze-wiki-contributor:latest
    ```
 
 ## Configuration
