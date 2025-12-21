@@ -35,7 +35,7 @@ Edit the `config/config.yaml` file to specify:
      --restart always \
      -v /your-path/mereheze-wiki-contributor/config:/app/config/ \
      -e TZ=America/New_York \
-     danutzzzzz/danutzzzzz/mereheze-wiki-contributor:latest
+     danutzzzzz/mereheze-wiki-contributor:latest
    ```
 ### Docker Compose
    ```bash
@@ -48,7 +48,7 @@ services:
             - /your-path/mereheze-wiki-contributor/config:/app/config/
         environment:
             - TZ=America/New_York
-        image: danutzzzzz/danutzzzzz/mereheze-wiki-contributor:latest
+        image: danutzzzzz/mereheze-wiki-contributor:latest
    ```
 
 ## Configuration
