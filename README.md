@@ -29,13 +29,26 @@ Edit the `config/config.yaml` file to specify:
    ```bash
    docker run -d --name wiki-bot mereheze-wiki-contributor
 
-### Docker Compose
+### Docker Run
    ```bash
    docker run -d --name mereheze-wiki-contributor \
      --restart always \
      -v /your-path/mereheze-wiki-contributor/config:/app/config/ \
      -e TZ=America/New_York \
      danutzzzzz/danutzzzzz/mereheze-wiki-contributor:latest
+   ```
+### Docker Compose
+   ```bash
+name: <your project name>
+services:
+    mereheze-wiki-contributor:
+        container_name: mereheze-wiki-contributor
+        restart: always
+        volumes:
+            - /your-path/mereheze-wiki-contributor/config:/app/config/
+        environment:
+            - TZ=America/New_York
+        image: danutzzzzz/danutzzzzz/mereheze-wiki-contributor:latest
    ```
 
 ## Configuration
