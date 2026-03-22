@@ -12,6 +12,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    # Required for multi-architecture builds (AMD64 + ARM64)
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    # Required to use the 'platforms' feature in build-push-action
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
     #- name: Docker metadata
       #id: meta
       #uses: docker/metadata-action@v5
@@ -38,7 +46,9 @@ jobs:
     - name: Build and push with updated base image
       uses: docker/build-push-action@v6
       with:
-        platforms: linux/amd64
+        context: .
+        # Added linux/arm64 to support your aarch64 environment
+        platforms: linux/amd64,linux/arm64
         push: true
         tags: |
           ${{ secrets.DOCKER_HUB_USERNAME }}/mereheze-wiki-contributor:latest
@@ -51,8 +61,5 @@ jobs:
       with:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
-        repository: danutzzzzz/mereheze-wiki-contributor # Replace with your actual repo
-        # Optional: Use your GitHub repo description as the short description on Docker Hub
+        repository: danutzzzzz/mereheze-wiki-contributor
         short-description: ${{ github.event.repository.description }}
-        # Optional: If your README is not at the root, specify the path
-        # readme-filepath: ./docs/README.md 
